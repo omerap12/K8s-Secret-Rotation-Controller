@@ -29,7 +29,7 @@ type AWSSecretGuardianSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of AWSSecretGuardian. Edit awssecretguardian_types.go to remove/update
-	Secrets []AWSSecret `json:"secrets"`
+	Secrets []AWSSecret `json:"awsSecrets,omitempty"`
 }
 
 // AWSSecretGuardianStatus defines the observed state of AWSSecretGuardian

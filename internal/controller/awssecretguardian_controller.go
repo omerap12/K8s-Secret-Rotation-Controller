@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -26,6 +27,9 @@ import (
 
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/sts"
 	corev1 "k8s.io/api/core/v1"
 
 	secretguardianv1alpha1 "github.com/omerap12/K8s-Secret-Rotation-Controller/api/v1alpha1"
@@ -61,19 +65,38 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 	}
 	if access_key == "" || secret_key == "" {
-		fmt.Println("Error retieiving access-key and secret-access-key")
+		fmt.Println("Error retieiving access-key and secret-access-key (value may be null)")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	awsSecretGuardiansList := &secretguardianv1alpha1.AWSSecretGuardianList{} // create the list object of all the AWSSecretGuardian objects
-	err = r.List(ctx, awsSecretGuardiansList)                                 // get the list of all the AWSSecretGuardian objects
+	userARN, err := r.GetUserARN("us-east-1", access_key, secret_key)
 	if err != nil {
-		fmt.Println("error getting DeathTimer object")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		fmt.Println(err)
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
-	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
-		fmt.Println("Handling ", awsSecretGuardian.Name)
-	}
+	fmt.Println(userARN)
+
+	// awsSecretGuardiansList := &secretguardianv1alpha1.AWSSecretGuardianList{} // create the list object of all the AWSSecretGuardian objects
+	// err = r.List(ctx, awsSecretGuardiansList)                                 // get the list of all the AWSSecretGuardian objects
+	// if err != nil {
+	// 	fmt.Println("error getting DeathTimer object")
+	// 	return ctrl.Result{}, client.IgnoreNotFound(err)
+	// }
+	// for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
+	// 	fmt.Println("Handling ", awsSecretGuardian.Name)
+	// 	region, name, length, level, ttl, namespace := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.Level, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Namespace
+	// 	fmt.Println("Region: ", region, " Name: ", name, " Length: ", length, " Level: ", level, " TTL: ", ttl, " Namespace: ", namespace)
+	// 	t, err := r.GetUserARN(region, access_key, secret_key, name, length)
+	// 	if err != nil {
+	// 		fmt.Println("Error: ", err)
+	// 		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	// 	}
+	// 	fmt.Println("Secret updated: ", t)
+
+	// 	// create/update the secret in AWS
+
+	// 	// create/update the secret in the namespace
+	// }
 
 	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
@@ -108,4 +131,17 @@ func (r *AWSSecretGuardianReconciler) getCreds(ctx context.Context, nameSpaceNam
 	return access_key, secret_key, nil
 }
 
-
+func (r *AWSSecretGuardianReconciler) GetUserARN(region string, access_key string, secret_access_key string) (string, error) {
+	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
+	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region: aws.String(region),
+	}))
+	// Create a new AWS STS client
+	svc := sts.New(sess)
+	result, err := svc.GetCallerIdentity(nil)
+	if err != nil {
+		return "", err
+	}
+	return *result.Arn, nil
+}

@@ -63,12 +63,3 @@ type AWSSecretGuardianList struct {
 func init() {
 	SchemeBuilder.Register(&AWSSecretGuardian{}, &AWSSecretGuardianList{})
 }
-
-// type AWSSecret struct {
-// 	Region    string `json:"region"`
-// 	Name      string `json:"name"`
-// 	Length    int    `json:"length"`
-// 	Level     string `json:"level"`
-// 	TTL       int    `json:"ttl"`
-// 	Namespace string `json:"namespace"`
-// }

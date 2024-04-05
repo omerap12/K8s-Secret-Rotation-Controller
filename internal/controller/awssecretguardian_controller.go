@@ -60,13 +60,20 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		fmt.Println("Error: ", err)
 		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 	}
-	if (access_key == "" || secret_key == "") {
+	if access_key == "" || secret_key == "" {
 		fmt.Println("Error retieiving access-key and secret-access-key")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
-	
 
-	// TODO(user): your logic here
+	awsSecretGuardiansList := &secretguardianv1alpha1.AWSSecretGuardianList{} // create the list object of all the AWSSecretGuardian objects
+	err = r.List(ctx, awsSecretGuardiansList)                                 // get the list of all the AWSSecretGuardian objects
+	if err != nil {
+		fmt.Println("error getting DeathTimer object")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
+		fmt.Println("Handling ", awsSecretGuardian.Name)
+	}
 
 	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
@@ -100,3 +107,5 @@ func (r *AWSSecretGuardianReconciler) getCreds(ctx context.Context, nameSpaceNam
 	secret_key := string(secret.Data["secret-access-key"])
 	return access_key, secret_key, nil
 }
+
+

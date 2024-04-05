@@ -71,8 +71,3 @@ type AWSSecret struct {
 	TTL       int    `json:"ttl"`
 	Namespace string `json:"namespace"`
 }
-
-type AWSCreds struct {
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
-}

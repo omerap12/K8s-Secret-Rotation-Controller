@@ -25,11 +25,12 @@ import (
 
 // AWSSecretGuardianSpec defines the desired state of AWSSecretGuardian
 type AWSSecretGuardianSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of AWSSecretGuardian. Edit awssecretguardian_types.go to remove/update
-	Secrets []AWSSecret `json:"awsSecrets,omitempty"`
+	Region    string `json:"region"`
+	Name      string `json:"name"`
+	Length    int    `json:"length"`
+	Level     string `json:"level"`
+	TTL       int    `json:"ttl"`
+	Namespace string `json:"namespace"`
 }
 
 // AWSSecretGuardianStatus defines the observed state of AWSSecretGuardian
@@ -63,11 +64,11 @@ func init() {
 	SchemeBuilder.Register(&AWSSecretGuardian{}, &AWSSecretGuardianList{})
 }
 
-type AWSSecret struct {
-	Region    string `json:"region"`
-	Name      string `json:"name"`
-	Length    int    `json:"length"`
-	Level     string `json:"level"`
-	TTL       int    `json:"ttl"`
-	Namespace string `json:"namespace"`
-}
+// type AWSSecret struct {
+// 	Region    string `json:"region"`
+// 	Name      string `json:"name"`
+// 	Length    int    `json:"length"`
+// 	Level     string `json:"level"`
+// 	TTL       int    `json:"ttl"`
+// 	Namespace string `json:"namespace"`
+// }

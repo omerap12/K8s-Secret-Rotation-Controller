@@ -18,11 +18,15 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
 
 	secretguardianv1alpha1 "github.com/omerap12/K8s-Secret-Rotation-Controller/api/v1alpha1"
 )
@@ -47,11 +51,24 @@ type AWSSecretGuardianReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.15.0/pkg/reconcile
 func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	// jsonHandler := slog.NewJSONHandler(os.Stderr, nil)
+	// operatorLogger := slog.New(jsonHandler)
+	// secretGuardian := &secretguardianv1alpha1.AWSSecretGuardian{}
+	//
+	access_key, secret_key, err := r.getCreds(ctx, "awssecretguardian", "aws-creds")
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	}
+	if (access_key == "" || secret_key == "") {
+		fmt.Println("Error retieiving access-key and secret-access-key")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+	
 
 	// TODO(user): your logic here
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -59,4 +76,27 @@ func (r *AWSSecretGuardianReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&secretguardianv1alpha1.AWSSecretGuardian{}).
 		Complete(r)
+}
+
+// func (r *AWSSecretGuardianReconciler) authenticateAWS (ctx context.Context) (bool, error) {
+// 	// load the the aws access and secret key.
+
+// }
+
+func (r *AWSSecretGuardianReconciler) getCreds(ctx context.Context, nameSpaceName string, secretName string) (string, string, error) {
+	// secret := &corev1.Secret{}
+	// nameSpaceObj := &corev1.Namespace{}
+	// err := r.Get(ctx, client.ObjectKey {Name: nameSpaceName}, nameSpaceObj) // get the desire namespace object into nameSpaceObj variable
+	// if err != nil {
+	// 	return false, err
+	// }
+
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secret)
+	if err != nil {
+		return "", "", err
+	}
+	access_key := string(secret.Data["access-key"])
+	secret_key := string(secret.Data["secret-access-key"])
+	return access_key, secret_key, nil
 }

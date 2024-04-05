@@ -29,7 +29,7 @@ type AWSSecretGuardianSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of AWSSecretGuardian. Edit awssecretguardian_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	Secrets []AWSSecret `json:"secrets"`
 }
 
 // AWSSecretGuardianStatus defines the observed state of AWSSecretGuardian
@@ -64,8 +64,15 @@ func init() {
 }
 
 type AWSSecret struct {
+	Region    string `json:"region"`
 	Name      string `json:"name"`
 	Length    int    `json:"length"`
 	Level     string `json:"level"`
+	TTL       int    `json:"ttl"`
 	Namespace string `json:"namespace"`
+}
+
+type AWSCreds struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
 }

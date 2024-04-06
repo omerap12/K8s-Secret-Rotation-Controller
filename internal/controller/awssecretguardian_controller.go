@@ -43,6 +43,8 @@ type AWSSecretGuardianReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+// +kubebuilder:rbac:groups=secretguardian.k8s.io,resources=awssecretguardians,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=secretguardian.k8s.io,resources=awssecretguardians/status,verbs=get;update;patch
 func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) { //
 	access_key, secret_key, err := r.GetCreds(ctx, "awssecretguardian", "aws-creds")
 	if err != nil {
@@ -92,6 +94,8 @@ func (r *AWSSecretGuardianReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// function to get the access key and secret key from the secret
+// return the access key and secret key as strings
 func (r *AWSSecretGuardianReconciler) GetCreds(ctx context.Context, nameSpaceName string, secretName string) (string, string, error) {
 	secret := &corev1.Secret{}
 	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secret)
@@ -103,6 +107,8 @@ func (r *AWSSecretGuardianReconciler) GetCreds(ctx context.Context, nameSpaceNam
 	return access_key, secret_key, nil
 }
 
+// function to get the ARN of the user using the AWS STS service
+// return the ARN of the user as a string
 func (r *AWSSecretGuardianReconciler) GetUserARN(region string, access_key string, secret_access_key string) (string, error) {
 	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
@@ -118,6 +124,8 @@ func (r *AWSSecretGuardianReconciler) GetUserARN(region string, access_key strin
 	return *result.Arn, nil
 }
 
+// function to check if the secret already exists in the AWS Secret Manager
+// return true if the secret exists, false if the secret does not exist
 func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key string, secret_access_key string, secretName string, length int, level string) (bool, error) {
 	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
@@ -140,6 +148,10 @@ func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key
 	return false, nil
 }
 
+// function to create or update the secret in the AWS Secret Manager
+// if the secret already exists, it will update the secret with a new password
+// if the secret does not exist, it will create a new secret with a new password
+// return true if the secret is created or updated successfully
 func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access_key string, secret_access_key string, secretName string, length int, level string, secretExist bool) (bool, error) {
 	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
@@ -173,6 +185,9 @@ func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access
 	return true, nil
 }
 
+// Function used to generate a random password of length n
+// The password will be a mix of uppercase, lowercase, numbers and special characters
+// return the generated password as a string
 func (r *AWSSecretGuardianReconciler) GeneratePassword(length int) string {
 	fmt.Println(length)
 	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?~"

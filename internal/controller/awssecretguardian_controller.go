@@ -59,7 +59,7 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// operatorLogger := slog.New(jsonHandler)
 	// secretGuardian := &secretguardianv1alpha1.AWSSecretGuardian{}
 	//
-	access_key, secret_key, err := r.getCreds(ctx, "awssecretguardian", "aws-creds")
+	access_key, secret_key, err := r.GetCreds(ctx, "awssecretguardian", "aws-creds")
 	if err != nil {
 		fmt.Println("Error: ", err)
 		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
@@ -113,7 +113,7 @@ func (r *AWSSecretGuardianReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // }
 
-func (r *AWSSecretGuardianReconciler) getCreds(ctx context.Context, nameSpaceName string, secretName string) (string, string, error) {
+func (r *AWSSecretGuardianReconciler) GetCreds(ctx context.Context, nameSpaceName string, secretName string) (string, string, error) {
 	// secret := &corev1.Secret{}
 	// nameSpaceObj := &corev1.Namespace{}
 	// err := r.Get(ctx, client.ObjectKey {Name: nameSpaceName}, nameSpaceObj) // get the desire namespace object into nameSpaceObj variable

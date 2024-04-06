@@ -42,24 +42,7 @@ type AWSSecretGuardianReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=secretguardian.omerap12.com,resources=awssecretguardians,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=secretguardian.omerap12.com,resources=awssecretguardians/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=secretguardian.omerap12.com,resources=awssecretguardians/finalizers,verbs=update
-
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the AWSSecretGuardian object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.15.0/pkg/reconcile
-func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// jsonHandler := slog.NewJSONHandler(os.Stderr, nil)
-	// operatorLogger := slog.New(jsonHandler)
-	// secretGuardian := &secretguardianv1alpha1.AWSSecretGuardian{}
-	//
+func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) { //
 	access_key, secret_key, err := r.GetCreds(ctx, "awssecretguardian", "aws-creds")
 	if err != nil {
 		fmt.Println("Error: ", err)
@@ -85,24 +68,27 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
 		fmt.Println("Handling ", awsSecretGuardian.Name)
-		region, name, _, level, _, _ := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.Level, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Namespace
-		secretExist, err := r.CheckSecretExist(region, access_key, secret_key, name, 15, level)
+		region, secretName, _, level, _, _ := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.Level, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Namespace
+		secretExist, err := r.CheckSecretExist(region, access_key, secret_key, secretName, 15, level)
 		if err != nil {
 			fmt.Println(err)
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
-		fmt.Println(secretExist)
-
-		// call update secret function
+		if secretExist {
+			fmt.Printf("Secret %s exist\n", secretName)
+		} else {
+			fmt.Printf("Secret %s doen't exist. creating ..\n", secretName)
+		}
+		ok, err := r.SecretManagerHandler(region, access_key, secret_key, secretName, 1, level, secretExist)
+		if err != nil {
+			fmt.Println(err)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		if ok {
+			fmt.Println("SecretUpdated.")
+		}
 	}
-	// 	fmt.Println("Secret updated: ", t)
-
-	// 	// create/update the secret in AWS
-
-	// 	// create/update the secret in the namespace
-	// }
-
-	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -112,19 +98,7 @@ func (r *AWSSecretGuardianReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// func (r *AWSSecretGuardianReconciler) authenticateAWS (ctx context.Context) (bool, error) {
-// 	// load the the aws access and secret key.
-
-// }
-
 func (r *AWSSecretGuardianReconciler) GetCreds(ctx context.Context, nameSpaceName string, secretName string) (string, string, error) {
-	// secret := &corev1.Secret{}
-	// nameSpaceObj := &corev1.Namespace{}
-	// err := r.Get(ctx, client.ObjectKey {Name: nameSpaceName}, nameSpaceObj) // get the desire namespace object into nameSpaceObj variable
-	// if err != nil {
-	// 	return false, err
-	// }
-
 	secret := &corev1.Secret{}
 	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secret)
 	if err != nil {
@@ -170,4 +144,35 @@ func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key
 		}
 	}
 	return false, nil
+}
+
+func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access_key string, secret_access_key string, secretName string, length int, level string, secretExist bool) (bool, error) {
+	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
+	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region: aws.String(region),
+	}))
+	svc := secretsmanager.New(sess)
+	if secretExist {
+		input := &secretsmanager.UpdateSecretInput{
+			SecretId:     aws.String(secretName),
+			Description:  aws.String("Secret Managed By AWSGuardian"),
+			SecretString: aws.String("blabla"),
+		}
+		_, err := svc.UpdateSecret(input)
+		if err != nil {
+			return false, err
+		}
+	} else {
+		input := &secretsmanager.CreateSecretInput{
+			Description:  aws.String("Secret Managed By AWSGuardian"),
+			Name:         aws.String(secretName),
+			SecretString: aws.String("blabla"),
+		}
+		_, err := svc.CreateSecret(input)
+		if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }

@@ -29,6 +29,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/secretsmanager"
 	"github.com/aws/aws-sdk-go/service/sts"
 	corev1 "k8s.io/api/core/v1"
 
@@ -76,21 +77,24 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 	fmt.Println(userARN)
 
-	// awsSecretGuardiansList := &secretguardianv1alpha1.AWSSecretGuardianList{} // create the list object of all the AWSSecretGuardian objects
-	// err = r.List(ctx, awsSecretGuardiansList)                                 // get the list of all the AWSSecretGuardian objects
-	// if err != nil {
-	// 	fmt.Println("error getting DeathTimer object")
-	// 	return ctrl.Result{}, client.IgnoreNotFound(err)
-	// }
-	// for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
-	// 	fmt.Println("Handling ", awsSecretGuardian.Name)
-	// 	region, name, length, level, ttl, namespace := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.Level, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Namespace
-	// 	fmt.Println("Region: ", region, " Name: ", name, " Length: ", length, " Level: ", level, " TTL: ", ttl, " Namespace: ", namespace)
-	// 	t, err := r.GetUserARN(region, access_key, secret_key, name, length)
-	// 	if err != nil {
-	// 		fmt.Println("Error: ", err)
-	// 		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
-	// 	}
+	awsSecretGuardiansList := &secretguardianv1alpha1.AWSSecretGuardianList{} // create the list object of all the AWSSecretGuardian objects
+	err = r.List(ctx, awsSecretGuardiansList)                                 // get the list of all the AWSSecretGuardian objects
+	if err != nil {
+		fmt.Println("error getting SecretGuardian Object")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
+		fmt.Println("Handling ", awsSecretGuardian.Name)
+		region, name, _, level, _, _ := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.Level, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Namespace
+		secretExist, err := r.CheckSecretExist(region, access_key, secret_key, name, 15, level)
+		if err != nil {
+			fmt.Println(err)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		fmt.Println(secretExist)
+
+		// call update secret function
+	}
 	// 	fmt.Println("Secret updated: ", t)
 
 	// 	// create/update the secret in AWS
@@ -144,4 +148,26 @@ func (r *AWSSecretGuardianReconciler) GetUserARN(region string, access_key strin
 		return "", err
 	}
 	return *result.Arn, nil
+}
+
+func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key string, secret_access_key string, secretName string, length int, level string) (bool, error) {
+	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
+	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region: aws.String(region),
+	}))
+
+	svc := secretsmanager.New(sess)
+	input := &secretsmanager.ListSecretsInput{}
+	result, err := svc.ListSecrets(input)
+	if err != nil {
+		return false, err
+	}
+	secretsList := result.SecretList
+	for _, value := range secretsList {
+		if secretName == *value.Name {
+			return true, nil
+		}
+	}
+	return false, nil
 }

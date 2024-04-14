@@ -33,6 +33,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
 	"github.com/aws/aws-sdk-go/service/sts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	secretguardianv1alpha1 "github.com/omerap12/K8s-Secret-Rotation-Controller/api/v1alpha1"
 )
@@ -61,9 +62,9 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		fmt.Println(err)
 		return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
 	}
-	fmt.Println(userARN) // print the ARN of the user
+	fmt.Println(userARN)                                                      // print the ARN of the user
 	awsSecretGuardiansList := &secretguardianv1alpha1.AWSSecretGuardianList{} // create the list object of all the AWSSecretGuardian objects
-	err = r.List(ctx, awsSecretGuardiansList) // get all the AWSSecretGuardian objects in the cluster
+	err = r.List(ctx, awsSecretGuardiansList)                                 // get all the AWSSecretGuardian objects in the cluster
 	if err != nil {
 		fmt.Println("error getting SecretGuardian Object")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -133,9 +134,9 @@ func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key
 		Region: aws.String(region),
 	}))
 
-	svc := secretsmanager.New(sess) // create a new AWS Secret Manager client
+	svc := secretsmanager.New(sess)             // create a new AWS Secret Manager client
 	input := &secretsmanager.ListSecretsInput{} // create a new input object
-	result, err := svc.ListSecrets(input) // list all the secrets in the AWS Secret Manager
+	result, err := svc.ListSecrets(input)       // list all the secrets in the AWS Secret Manager
 	if err != nil {
 		return false, err
 	}
@@ -161,7 +162,7 @@ func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access
 	svc := secretsmanager.New(sess)
 	password := r.GeneratePassword(length)
 	if secretExist {
-		input := &secretsmanager.UpdateSecretInput{  // create a new input object
+		input := &secretsmanager.UpdateSecretInput{ // create a new input object
 			SecretId:     aws.String(secretName),
 			Description:  aws.String("Secret Managed By AWSGuardian"),
 			SecretString: aws.String(password),
@@ -195,4 +196,21 @@ func (r *AWSSecretGuardianReconciler) GeneratePassword(length int) string {
 	}
 	pass := string(password)
 	return pass
+}
+
+func (r *AWSSecretGuardianReconciler) CreateKubeSecret(ctx context.Context, secretName string, namespace string, password string) (error, bool) {
+	kubeSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+		},
+		Data: map[string][]byte{
+			"password": []byte(password),
+		},
+	}
+	err := r.Create(ctx, kubeSecret)
+	if err != nil {
+		return err, false
+	}
+	return nil, true
 }

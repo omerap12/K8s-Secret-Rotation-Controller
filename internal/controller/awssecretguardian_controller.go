@@ -50,17 +50,17 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	access_key, secret_key, err := r.GetCreds(ctx, "awssecretguardian", "aws-creds") // get the access key and secret key from the secret in the namespace awssecretguardian
 	if err != nil {
 		fmt.Println("Error: ", err)
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
 	}
 	if access_key == "" || secret_key == "" {
 		fmt.Println("Error retieiving access-key and secret-access-key (value may be null)")
-		return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
 	}
 
 	userARN, err := r.GetUserARN("us-east-1", access_key, secret_key) // get the ARN of the user using the AWS STS service
 	if err != nil {
 		fmt.Println(err)
-		return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
 	}
 	fmt.Println(userARN)                                                      // print the ARN of the user
 	awsSecretGuardiansList := &secretguardianv1alpha1.AWSSecretGuardianList{} // create the list object of all the AWSSecretGuardian objects
@@ -70,23 +70,23 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
-		region, secretName, length, ttl, keys, namespace := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Keys, awsSecretGuardian.ObjectMeta.Namespace
+		region, secretName, length, _, keys, _ := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Keys, awsSecretGuardian.ObjectMeta.Namespace
 
 		secretExist, err := r.CheckSecretExist(region, access_key, secret_key, secretName) // check if the secret already exists in the AWS Secret Manager
 		if err != nil {
 			fmt.Println(err)
-			return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
+			return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
 		}
 		ok, err := r.SecretManagerHandler(region, access_key, secret_key, secretName, keys, length, secretExist) // create or update the secret in the AWS Secret Manager
 		if err != nil {
 			fmt.Println(err)
-			return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
+			return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
 		}
 		if ok {
 			fmt.Printf("Updated secret %s\n", secretName)
 		}
 	}
-	return ctrl.Result{RequeueAfter: 300 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -154,7 +154,7 @@ func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key
 // if the secret already exists, it will update the secret with a new password
 // if the secret does not exist, it will create a new secret with a new password
 // return true if the secret is created or updated successfully
-func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access_key string, secret_access_key string, secretName string, length int, keys []string, secretExist bool) (bool, error) {
+func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access_key string, secret_access_key string, secretName string, keys []string, length int, secretExist bool) (bool, error) {
 	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
 	sess := session.Must(session.NewSession(&aws.Config{
@@ -206,7 +206,7 @@ func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int
 	}
 	jsonString, err := json.Marshal(keyValueObject)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	return string(jsonString), nil
 }

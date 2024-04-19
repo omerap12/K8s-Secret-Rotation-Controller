@@ -194,9 +194,8 @@ func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access
 // return the generated password as a string
 func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int) (string, error) {
 	keyValueObject := make(map[string]string, len(keys))
-
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?~"
 	for _, key := range keys {
-		charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?~"
 		password := make([]byte, length)
 		for i := range password {
 			password[i] = charset[rand.Intn(len(charset))]

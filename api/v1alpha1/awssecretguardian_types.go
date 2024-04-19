@@ -25,12 +25,11 @@ import (
 
 // AWSSecretGuardianSpec defines the desired state of AWSSecretGuardian
 type AWSSecretGuardianSpec struct {
-	Region    string `json:"region"`
-	Name      string `json:"name"`
-	Length    int    `json:"length"`
-	Level     string `json:"level"`
-	TTL       int    `json:"ttl"`
-	Namespace string `json:"namespace"`
+	Region string   `json:"region"`
+	Name   string   `json:"name"`
+	Length int      `json:"length"`
+	TTL    int      `json:"ttl"`
+	Keys   []string `json:"keys"`
 }
 
 // AWSSecretGuardianStatus defines the observed state of AWSSecretGuardian

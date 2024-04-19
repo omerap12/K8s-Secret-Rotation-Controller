@@ -192,7 +192,7 @@ func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access
 // Function used to generate a random password of length n
 // The password will be a mix of uppercase, lowercase, numbers and special characters
 // return the generated password as a string
-func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int) (string, err) {
+func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int) (string, error) {
 	keyValueObject := make(map[string]string, len(keys))
 
 	for _, key := range keys {

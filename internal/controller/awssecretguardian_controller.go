@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -61,22 +62,22 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		fmt.Println(err)
 		return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
 	}
-	fmt.Println(userARN) // print the ARN of the user
+	fmt.Println(userARN)                                                      // print the ARN of the user
 	awsSecretGuardiansList := &secretguardianv1alpha1.AWSSecretGuardianList{} // create the list object of all the AWSSecretGuardian objects
-	err = r.List(ctx, awsSecretGuardiansList) // get all the AWSSecretGuardian objects in the cluster
+	err = r.List(ctx, awsSecretGuardiansList)                                 // get all the AWSSecretGuardian objects in the cluster
 	if err != nil {
 		fmt.Println("error getting SecretGuardian Object")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
 		region, secretName, length, ttl, keys, namespace := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Keys, awsSecretGuardian.ObjectMeta.Namespace
-		
+
 		secretExist, err := r.CheckSecretExist(region, access_key, secret_key, secretName) // check if the secret already exists in the AWS Secret Manager
 		if err != nil {
 			fmt.Println(err)
 			return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
 		}
-		ok, err := r.SecretManagerHandler(region, access_key, secret_key, secretName, keys,length, secretExist) // create or update the secret in the AWS Secret Manager
+		ok, err := r.SecretManagerHandler(region, access_key, secret_key, secretName, keys, length, secretExist) // create or update the secret in the AWS Secret Manager
 		if err != nil {
 			fmt.Println(err)
 			return ctrl.Result{RequeueAfter: 120 * time.Second}, nil
@@ -134,9 +135,9 @@ func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key
 		Region: aws.String(region),
 	}))
 
-	svc := secretsmanager.New(sess) // create a new AWS Secret Manager client
+	svc := secretsmanager.New(sess)             // create a new AWS Secret Manager client
 	input := &secretsmanager.ListSecretsInput{} // create a new input object
-	result, err := svc.ListSecrets(input) // list all the secrets in the AWS Secret Manager
+	result, err := svc.ListSecrets(input)       // list all the secrets in the AWS Secret Manager
 	if err != nil {
 		return false, err
 	}
@@ -153,22 +154,19 @@ func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key
 // if the secret already exists, it will update the secret with a new password
 // if the secret does not exist, it will create a new secret with a new password
 // return true if the secret is created or updated successfully
-func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access_key string, secret_access_key string, secretName string,keys []string, length int, secretExist bool) (bool, error) {
+func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access_key string, secret_access_key string, secretName string, length int, keys []string, secretExist bool) (bool, error) {
 	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
 	sess := session.Must(session.NewSession(&aws.Config{
 		Region: aws.String(region),
 	}))
 	svc := secretsmanager.New(sess)
-	password := r.GeneratePassword(keys,length) // generate password randomly - return json string.
-	if secretExist { // if secret exist update it
-		input := &secretsmanager.UpdateSecretInput{
-			SecretId:     aws.String(secretName),
-			Description:  aws.String("Secret Managed By AWSGuardian"),
-			SecretString: aws.String(password),
-		}
+	password, err := r.GeneratePassword(keys, length)
+	if err != nil {
+		return false, err
 	}
-		input := &secretsmanager.UpdateSecretInput{  // create a new input object
+	if secretExist {
+		input := &secretsmanager.UpdateSecretInput{ // create a new input object
 			SecretId:     aws.String(secretName),
 			Description:  aws.String("Secret Managed By AWSGuardian"),
 			SecretString: aws.String(password),
@@ -194,10 +192,10 @@ func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access
 // Function used to generate a random password of length n
 // The password will be a mix of uppercase, lowercase, numbers and special characters
 // return the generated password as a string
-func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string,length int) (string,err) {
+func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int) (string, err) {
 	keyValueObject := make(map[string]string, len(keys))
-	
-	for _,key := range keys {
+
+	for _, key := range keys {
 		charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?~"
 		password := make([]byte, length)
 		for i := range password {

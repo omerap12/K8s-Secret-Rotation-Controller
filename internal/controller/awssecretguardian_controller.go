@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,14 +71,14 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
-		region, secretName, length, _, keys, _ := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Keys, awsSecretGuardian.ObjectMeta.Namespace
+		region, secretName, length, _, keys, nameSpace := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Keys, awsSecretGuardian.ObjectMeta.Namespace
 
 		secretExist, err := r.CheckSecretExist(region, access_key, secret_key, secretName) // check if the secret already exists in the AWS Secret Manager
 		if err != nil {
 			fmt.Println(err)
 			return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
 		}
-		ok, err := r.SecretManagerHandler(region, access_key, secret_key, secretName, keys, length, secretExist) // create or update the secret in the AWS Secret Manager
+		ok, err := r.SecretHandler(ctx, region, access_key, secret_key, nameSpace, secretName, keys, length, secretExist) // create or update the secret in the AWS Secret Manager
 		if err != nil {
 			fmt.Println(err)
 			return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
@@ -154,14 +155,14 @@ func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key
 // if the secret already exists, it will update the secret with a new password
 // if the secret does not exist, it will create a new secret with a new password
 // return true if the secret is created or updated successfully
-func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access_key string, secret_access_key string, secretName string, keys []string, length int, secretExist bool) (bool, error) {
+func (r *AWSSecretGuardianReconciler) SecretHandler(ctx context.Context, region string, access_key string, secret_access_key string, nameSpaceName string, secretName string, keys []string, length int, secretExist bool) (bool, error) {
 	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
 	sess := session.Must(session.NewSession(&aws.Config{
 		Region: aws.String(region),
 	}))
 	svc := secretsmanager.New(sess)
-	password, err := r.GeneratePassword(keys, length)
+	password, k8sSecretData, err := r.GeneratePassword(keys, length)
 	if err != nil {
 		return false, err
 	}
@@ -186,13 +187,21 @@ func (r *AWSSecretGuardianReconciler) SecretManagerHandler(region string, access
 			return false, err
 		}
 	}
+	ok, err := r.CreateK8SPassword(ctx, nameSpaceName, secretName, k8sSecretData)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
 	return true, nil
 }
 
 // Function used to generate a random password of length n
 // The password will be a mix of uppercase, lowercase, numbers and special characters
-// return the generated password as a string
-func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int) (string, error) {
+// return the password as a string and the password as a map of keys and values as a byte array for the k8s secret
+func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int) (string, map[string][]byte, error) {
+	k8sSecretData := make(map[string][]byte, len(keys))
 	keyValueObject := make(map[string]string, len(keys))
 	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?~"
 	for _, key := range keys {
@@ -200,12 +209,56 @@ func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int
 		for i := range password {
 			password[i] = charset[rand.Intn(len(charset))]
 		}
+		k8sSecretData[key] = password
 		pass := string(password)
 		keyValueObject[key] = pass
 	}
 	jsonString, err := json.Marshal(keyValueObject)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return string(jsonString), nil
+	return string(jsonString), k8sSecretData, nil
+}
+
+func (r *AWSSecretGuardianReconciler) checkK8SSecretExist(ctx context.Context, nameSpaceName string, secretName string) (bool, error) {
+	secretObj := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secretObj)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *AWSSecretGuardianReconciler) CreateK8SPassword(ctx context.Context, nameSpaceName string, secretName string, secretData map[string][]byte) (bool, error) {
+	fmt.Println("Checking new function..")
+	checkForExistSecret, err := r.checkK8SSecretExist(ctx, nameSpaceName, secretName)
+	if err != nil {
+		fmt.Println(err)
+		fmt.Println(checkForExistSecret)
+	}
+	if !checkForExistSecret {
+		secretObj := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: nameSpaceName,
+			},
+			Data: secretData,
+		}
+		err := r.Create(ctx, secretObj)
+		if err != nil {
+			return false, err
+		}
+	} else {
+		secretObj := &corev1.Secret{}
+		err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secretObj)
+		if err != nil {
+			return false, err
+		}
+		secretObj.Data = secretData
+		err = r.Update(ctx, secretObj)
+		if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }

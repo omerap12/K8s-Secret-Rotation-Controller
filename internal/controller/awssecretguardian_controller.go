@@ -233,7 +233,6 @@ func (r *AWSSecretGuardianReconciler) CreateK8SPassword(ctx context.Context, nam
 	fmt.Println("Checking new function..")
 	checkForExistSecret, err := r.checkK8SSecretExist(ctx, nameSpaceName, secretName)
 	if err != nil {
-		fmt.Println(err)
 		fmt.Println(checkForExistSecret)
 	}
 	if !checkForExistSecret {

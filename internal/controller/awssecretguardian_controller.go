@@ -71,14 +71,14 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
-		region, secretName, length, _, keys, nameSpace := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Keys, awsSecretGuardian.ObjectMeta.Namespace
+		region, secretName, length, ttl, keys, nameSpace := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Keys, awsSecretGuardian.ObjectMeta.Namespace
 
-		secretExist, err := r.CheckSecretExist(region, access_key, secret_key, secretName) // check if the secret already exists in the AWS Secret Manager
+		secretExist, err := r.CheckAWSSecretExist(region, access_key, secret_key, secretName) // check if the secret already exists in the AWS Secret Manager
 		if err != nil {
 			fmt.Println(err)
 			return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
 		}
-		ok, err := r.SecretHandler(ctx, region, access_key, secret_key, nameSpace, secretName, keys, length, secretExist) // create or update the secret in the AWS Secret Manager
+		ok, err := r.SecretHandler(ctx, region, access_key, secret_key, nameSpace, ttl, secretName, keys, length, secretExist) // create or update the secret in the AWS Secret Manager
 		if err != nil {
 			fmt.Println(err)
 			return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
@@ -129,7 +129,7 @@ func (r *AWSSecretGuardianReconciler) GetUserARN(region string, access_key strin
 
 // function to check if the secret already exists in the AWS Secret Manager
 // return true if the secret exists, false if the secret does not exist
-func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key string, secret_access_key string, secretName string) (bool, error) {
+func (r *AWSSecretGuardianReconciler) CheckAWSSecretExist(region string, access_key string, secret_access_key string, secretName string) (bool, error) {
 	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
 	sess := session.Must(session.NewSession(&aws.Config{ // create a new session
@@ -155,7 +155,7 @@ func (r *AWSSecretGuardianReconciler) CheckSecretExist(region string, access_key
 // if the secret already exists, it will update the secret with a new password
 // if the secret does not exist, it will create a new secret with a new password
 // return true if the secret is created or updated successfully
-func (r *AWSSecretGuardianReconciler) SecretHandler(ctx context.Context, region string, access_key string, secret_access_key string, nameSpaceName string, secretName string, keys []string, length int, secretExist bool) (bool, error) {
+func (r *AWSSecretGuardianReconciler) SecretHandler(ctx context.Context, region string, access_key string, secret_access_key string, nameSpaceName string, ttl int, secretName string, keys []string, length int, secretExist bool) (bool, error) {
 	os.Setenv("AWS_ACCESS_KEY_ID", access_key)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", secret_access_key)
 	sess := session.Must(session.NewSession(&aws.Config{
@@ -187,7 +187,7 @@ func (r *AWSSecretGuardianReconciler) SecretHandler(ctx context.Context, region 
 			return false, err
 		}
 	}
-	ok, err := r.CreateK8SPassword(ctx, nameSpaceName, secretName, k8sSecretData)
+	ok, err := r.K8SSecretHandler(ctx, nameSpaceName, ttl, secretName, k8sSecretData)
 	if err != nil {
 		return false, err
 	}
@@ -220,44 +220,52 @@ func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int
 	return string(jsonString), k8sSecretData, nil
 }
 
-func (r *AWSSecretGuardianReconciler) checkK8SSecretExist(ctx context.Context, nameSpaceName string, secretName string) (bool, error) {
-	secretObj := &corev1.Secret{}
-	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secretObj)
+func (r *AWSSecretGuardianReconciler) K8SSecretHandler(ctx context.Context, nameSpaceName string, ttl int, secretName string, secretData map[string][]byte) (bool, error) {
+	secretObj, err := r.GetSecretK8S(ctx, nameSpaceName, secretName)
 	if err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func (r *AWSSecretGuardianReconciler) CreateK8SPassword(ctx context.Context, nameSpaceName string, secretName string, secretData map[string][]byte) (bool, error) {
-	fmt.Println("Checking new function..")
-	checkForExistSecret, err := r.checkK8SSecretExist(ctx, nameSpaceName, secretName)
-	if err != nil {
-		fmt.Println(checkForExistSecret)
-	}
-	if !checkForExistSecret {
-		secretObj := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: nameSpaceName,
-			},
-			Data: secretData,
-		}
-		err := r.Create(ctx, secretObj)
+		fmt.Println(err)
+		_, err := r.CreateSecretK8S(ctx, nameSpaceName, secretName, secretData)
 		if err != nil {
 			return false, err
 		}
 	} else {
-		secretObj := &corev1.Secret{}
-		err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secretObj)
+		if !time.Now().After(secretObj.ObjectMeta.CreationTimestamp.Add(time.Duration(float64(ttl) * 1e9))) {
+			fmt.Println("TTL")
+			return false, nil
+		}
+		err = r.Delete(ctx, secretObj)
+		if err != nil {
+			fmt.Println(err)
+		}
+		_, err = r.CreateSecretK8S(ctx, nameSpaceName, secretName, secretData)
 		if err != nil {
 			return false, err
 		}
-		secretObj.Data = secretData
-		err = r.Update(ctx, secretObj)
-		if err != nil {
-			return false, err
-		}
+	}
+	return true, nil
+}
+
+func (r *AWSSecretGuardianReconciler) GetSecretK8S(ctx context.Context, nameSpaceName string, secretName string) (*corev1.Secret, error) {
+	secretObj := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secretObj)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	return secretObj, nil
+}
+
+func (r *AWSSecretGuardianReconciler) CreateSecretK8S(ctx context.Context, nameSpaceName string, secretName string, secretData map[string][]byte) (bool, error) {
+	secretObj := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: nameSpaceName,
+		},
+		Data: secretData,
+	}
+	err := r.Create(ctx, secretObj)
+	if err != nil {
+		return false, err
 	}
 	return true, nil
 }

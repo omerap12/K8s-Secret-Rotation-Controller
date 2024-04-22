@@ -87,7 +87,7 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			fmt.Printf("Updated secret %s\n", secretName)
 		}
 	}
-	return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -224,20 +224,23 @@ func (r *AWSSecretGuardianReconciler) K8SSecretHandler(ctx context.Context, name
 	secretObj, err := r.GetSecretK8S(ctx, nameSpaceName, secretName)
 	if err != nil {
 		fmt.Println(err)
-		_, err := r.CreateSecretK8S(ctx, nameSpaceName, secretName, secretData)
+		_, err := r.CreateUpdateK8SSecret(ctx, nameSpaceName, secretName, secretData, true)
 		if err != nil {
 			return false, err
 		}
 	} else {
-		if !time.Now().After(secretObj.ObjectMeta.CreationTimestamp.Add(time.Duration(float64(ttl) * 1e9))) {
-			fmt.Println("TTL")
+		annotationTime, err := time.Parse(time.RFC3339, secretObj.Annotations["K8s-Secret-Rotation-Controller"])
+		if err != nil {
+			fmt.Printf("Error converting %s to time format", annotationTime)
+			return false, err
+		}
+		if !time.Now().UTC().After(annotationTime.Add(time.Second * time.Duration(ttl))) {
+			fmt.Println(time.Now().UTC())
+			fmt.Printf("Annot %s\n", annotationTime)
+			fmt.Println(annotationTime.Add(time.Second * time.Duration(ttl)))
 			return false, nil
 		}
-		err = r.Delete(ctx, secretObj)
-		if err != nil {
-			fmt.Println(err)
-		}
-		_, err = r.CreateSecretK8S(ctx, nameSpaceName, secretName, secretData)
+		_, err = r.CreateUpdateK8SSecret(ctx, nameSpaceName, secretName, secretData, false)
 		if err != nil {
 			return false, err
 		}
@@ -255,15 +258,23 @@ func (r *AWSSecretGuardianReconciler) GetSecretK8S(ctx context.Context, nameSpac
 	return secretObj, nil
 }
 
-func (r *AWSSecretGuardianReconciler) CreateSecretK8S(ctx context.Context, nameSpaceName string, secretName string, secretData map[string][]byte) (bool, error) {
+func (r *AWSSecretGuardianReconciler) CreateUpdateK8SSecret(ctx context.Context, nameSpaceName string, secretName string, secretData map[string][]byte, create bool) (bool, error) {
+	utcTime := time.Now().UTC()
+	controllerAnnotation := map[string]string{"K8s-Secret-Rotation-Controller": utcTime.Format(time.RFC3339)}
 	secretObj := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: nameSpaceName,
+			Name:        secretName,
+			Namespace:   nameSpaceName,
+			Annotations: controllerAnnotation,
 		},
 		Data: secretData,
 	}
-	err := r.Create(ctx, secretObj)
+	var err error
+	if create {
+		err = r.Create(ctx, secretObj)
+	} else {
+		err = r.Update(ctx, secretObj)
+	}
 	if err != nil {
 		return false, err
 	}

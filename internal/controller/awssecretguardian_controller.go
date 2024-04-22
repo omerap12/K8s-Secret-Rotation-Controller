@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	log "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"math/rand"
 	"time"
@@ -45,29 +46,33 @@ type AWSSecretGuardianReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+var RequeueAfterTime time.Duration = 5
+var RequeueAfterTimeKeys time.Duration = 10
+var logger = log.Log.WithName("awssecretguardian-controller")
+
 // +kubebuilder:rbac:groups=secretguardian.k8s.io,resources=awssecretguardians,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=secretguardian.k8s.io,resources=awssecretguardians/status,verbs=get;update;patch
 func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) { //
 	access_key, secret_key, err := r.GetCreds(ctx, "awssecretguardian", "aws-creds") // get the access key and secret key from the secret in the namespace awssecretguardian
 	if err != nil {
-		fmt.Println("Error: ", err)
-		return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
+		logger.Error(err, "Error getting access-key and secret-access-key from the secret in the namespace awssecretguardian (value may be null)")
+		return ctrl.Result{RequeueAfter: RequeueAfterTimeKeys * time.Second}, nil
 	}
 	if access_key == "" || secret_key == "" {
-		fmt.Println("Error retieiving access-key and secret-access-key (value may be null)")
-		return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
+		logger.Info("access-key or secret-access-key is empty")
+		return ctrl.Result{RequeueAfter: RequeueAfterTime * time.Second}, nil
 	}
 
 	userARN, err := r.GetUserARN("us-east-1", access_key, secret_key) // get the ARN of the user using the AWS STS service
 	if err != nil {
-		fmt.Println(err)
-		return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
+		logger.Info(fmt.Sprintf("Error getting user ARN: %s", err))
+		return ctrl.Result{RequeueAfter: RequeueAfterTime * time.Second}, nil
 	}
-	fmt.Println(userARN)                                                      // print the ARN of the user
+	logger.Info(fmt.Sprintf("User ARN: %s", userARN))
 	awsSecretGuardiansList := &secretguardianv1alpha1.AWSSecretGuardianList{} // create the list object of all the AWSSecretGuardian objects
 	err = r.List(ctx, awsSecretGuardiansList)                                 // get all the AWSSecretGuardian objects in the cluster
 	if err != nil {
-		fmt.Println("error getting SecretGuardian Object")
+		logger.Info(fmt.Sprintf("Error getting the list of AWSSecretGuardian objects: %s", err))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
@@ -75,19 +80,21 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 		secretExist, err := r.CheckAWSSecretExist(region, access_key, secret_key, secretName) // check if the secret already exists in the AWS Secret Manager
 		if err != nil {
-			fmt.Println(err)
-			return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
+			logger.Info(fmt.Sprintf("Error checking if the secret exists in the AWS Secret Manager: %s", err))
+			return ctrl.Result{RequeueAfter: RequeueAfterTime * time.Second}, nil
 		}
 		ok, err := r.SecretHandler(ctx, region, access_key, secret_key, nameSpace, ttl, secretName, keys, length, secretExist) // create or update the secret in the AWS Secret Manager
 		if err != nil {
-			fmt.Println(err)
-			return ctrl.Result{RequeueAfter: 100000000 * time.Second}, nil
+			logger.Info(fmt.Sprintf("Error creating or updating the secret in the AWS Secret Manager: %s", err))
+			return ctrl.Result{RequeueAfter: RequeueAfterTime * time.Second}, nil
 		}
 		if ok {
-			fmt.Printf("Updated secret %s\n", secretName)
+			logger.Info(fmt.Sprintf("Secret %s created or updated in the AWS Secret Manager", secretName))
+		} else {
+			logger.Info(fmt.Sprintf("Secret %s TTL not reached", secretName))
 		}
 	}
-	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: RequeueAfterTime * time.Second}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -223,7 +230,6 @@ func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int
 func (r *AWSSecretGuardianReconciler) K8SSecretHandler(ctx context.Context, nameSpaceName string, ttl int, secretName string, secretData map[string][]byte) (bool, error) {
 	secretObj, err := r.GetSecretK8S(ctx, nameSpaceName, secretName)
 	if err != nil {
-		fmt.Println(err)
 		_, err := r.CreateUpdateK8SSecret(ctx, nameSpaceName, secretName, secretData, true)
 		if err != nil {
 			return false, err
@@ -231,13 +237,9 @@ func (r *AWSSecretGuardianReconciler) K8SSecretHandler(ctx context.Context, name
 	} else {
 		annotationTime, err := time.Parse(time.RFC3339, secretObj.Annotations["K8s-Secret-Rotation-Controller"])
 		if err != nil {
-			fmt.Printf("Error converting %s to time format", annotationTime)
 			return false, err
 		}
 		if !time.Now().UTC().After(annotationTime.Add(time.Second * time.Duration(ttl))) {
-			fmt.Println(time.Now().UTC())
-			fmt.Printf("Annot %s\n", annotationTime)
-			fmt.Println(annotationTime.Add(time.Second * time.Duration(ttl)))
 			return false, nil
 		}
 		_, err = r.CreateUpdateK8SSecret(ctx, nameSpaceName, secretName, secretData, false)
@@ -245,6 +247,7 @@ func (r *AWSSecretGuardianReconciler) K8SSecretHandler(ctx context.Context, name
 			return false, err
 		}
 	}
+	logger.Info(fmt.Sprintf("Secret %s/%s created or updated", nameSpaceName, secretName))
 	return true, nil
 }
 
@@ -252,7 +255,6 @@ func (r *AWSSecretGuardianReconciler) GetSecretK8S(ctx context.Context, nameSpac
 	secretObj := &corev1.Secret{}
 	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secretObj)
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	return secretObj, nil

@@ -75,10 +75,9 @@ func (r *AWSSecretGuardianReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		logger.Info(fmt.Sprintf("Error getting the list of AWSSecretGuardian objects: %s", err))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	for _, awsSecretGuardian := range awsSecretGuardiansList.Items {
-		region, secretName, length, ttl, keys, nameSpace := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Keys, awsSecretGuardian.ObjectMeta.Namespace
-
-		secretExist, err := r.CheckAWSSecretExist(region, access_key, secret_key, secretName) // check if the secret already exists in the AWS Secret Manager
+	for _, awsSecretGuardian := range awsSecretGuardiansList.Items { // iterate over all the AWSSecretGuardian objects
+		region, secretName, length, ttl, keys, nameSpace := awsSecretGuardian.Spec.Region, awsSecretGuardian.Spec.Name, awsSecretGuardian.Spec.Length, awsSecretGuardian.Spec.TTL, awsSecretGuardian.Spec.Keys, awsSecretGuardian.ObjectMeta.Namespace // get the region, secret name, length, TTL, keys and namespace from the AWSSecretGuardian object
+		secretExist, err := r.CheckAWSSecretExist(region, access_key, secret_key, secretName)                                                                                                                                                          // check if the secret already exists in the AWS Secret Manager
 		if err != nil {
 			logger.Info(fmt.Sprintf("Error checking if the secret exists in the AWS Secret Manager: %s", err))
 			return ctrl.Result{RequeueAfter: RequeueAfterTime * time.Second}, nil
@@ -227,22 +226,26 @@ func (r *AWSSecretGuardianReconciler) GeneratePassword(keys []string, length int
 	return string(jsonString), k8sSecretData, nil
 }
 
+// function to create or update the secret in the k8s cluster
+// if the secret already exists, it will update the secret with a new password
+// if the secret does not exist, it will create a new secret with a new password
+// return true if the secret is created or updated successfully
 func (r *AWSSecretGuardianReconciler) K8SSecretHandler(ctx context.Context, nameSpaceName string, ttl int, secretName string, secretData map[string][]byte) (bool, error) {
-	secretObj, err := r.GetSecretK8S(ctx, nameSpaceName, secretName)
+	secretObj, err := r.GetSecretK8S(ctx, nameSpaceName, secretName) // get the secret object from the k8s cluster
 	if err != nil {
-		_, err := r.CreateUpdateK8SSecret(ctx, nameSpaceName, secretName, secretData, true)
+		_, err := r.CreateUpdateK8SSecret(ctx, nameSpaceName, secretName, secretData, true) // create the secret in the k8s cluster
 		if err != nil {
 			return false, err
 		}
 	} else {
-		annotationTime, err := time.Parse(time.RFC3339, secretObj.Annotations["K8s-Secret-Rotation-Controller"])
+		annotationTime, err := time.Parse(time.RFC3339, secretObj.Annotations["K8s-Secret-Rotation-Controller"]) // get the annotation time from the secret object
 		if err != nil {
 			return false, err
 		}
-		if !time.Now().UTC().After(annotationTime.Add(time.Second * time.Duration(ttl))) {
+		if !time.Now().UTC().After(annotationTime.Add(time.Second * time.Duration(ttl))) { // check if the TTL of the secret has reached
 			return false, nil
 		}
-		_, err = r.CreateUpdateK8SSecret(ctx, nameSpaceName, secretName, secretData, false)
+		_, err = r.CreateUpdateK8SSecret(ctx, nameSpaceName, secretName, secretData, false) // update the secret in the k8s cluster
 		if err != nil {
 			return false, err
 		}
@@ -251,19 +254,25 @@ func (r *AWSSecretGuardianReconciler) K8SSecretHandler(ctx context.Context, name
 	return true, nil
 }
 
+// function to get the secret object from the k8s cluster
+// return the secret object
 func (r *AWSSecretGuardianReconciler) GetSecretK8S(ctx context.Context, nameSpaceName string, secretName string) (*corev1.Secret, error) {
-	secretObj := &corev1.Secret{}
-	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secretObj)
+	secretObj := &corev1.Secret{}                                                              // create a new secret object
+	err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: nameSpaceName}, secretObj) // get the secret object from the k8s cluster
 	if err != nil {
 		return nil, err
 	}
-	return secretObj, nil
+	return secretObj, nil // return the secret object
 }
 
+// function to create or update the secret in the k8s cluster
+// if the secret already exists, it will update the secret with a new password
+// if the secret does not exist, it will create a new secret with a new password
+// return true if the secret is created or updated successfully
 func (r *AWSSecretGuardianReconciler) CreateUpdateK8SSecret(ctx context.Context, nameSpaceName string, secretName string, secretData map[string][]byte, create bool) (bool, error) {
 	utcTime := time.Now().UTC()
-	controllerAnnotation := map[string]string{"K8s-Secret-Rotation-Controller": utcTime.Format(time.RFC3339)}
-	secretObj := &corev1.Secret{
+	controllerAnnotation := map[string]string{"K8s-Secret-Rotation-Controller": utcTime.Format(time.RFC3339)} // create a new annotation for the secret object
+	secretObj := &corev1.Secret{                                                                              // create a new secret object
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        secretName,
 			Namespace:   nameSpaceName,
@@ -272,7 +281,7 @@ func (r *AWSSecretGuardianReconciler) CreateUpdateK8SSecret(ctx context.Context,
 		Data: secretData,
 	}
 	var err error
-	if create {
+	if create { // check if the secret object needs to be created or updated
 		err = r.Create(ctx, secretObj)
 	} else {
 		err = r.Update(ctx, secretObj)

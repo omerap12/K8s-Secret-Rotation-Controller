@@ -1,8 +1,24 @@
 # k8s-secret-rotation-controller
-// TODO(user): Add simple overview of use/purpose
+The k8s-secret-rotation-controller controller is a Kubernetes operator designed to manage secrets stored in AWS Secret Manager. It automates the rotation process of these secrets, ensuring they are regularly updated and synchronized with their Kubernetes counterparts. This controller integrates with AWS services such as STS (Security Token Service) and Secrets Manager to securely manage credentials and secret data.
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+The k8s-secret-rotation-controller controller is a Kubernetes operator built to simplify the management and rotation of secrets stored in AWS Secret Manager. This controller operates by reconciling custom resources of type `AWSSecretGuardian`, which define the parameters for secret rotation.
+
+Here's a brief overview of the key functionalities:
+
+1. **Secret Rotation:** The controller periodically rotates secrets stored in AWS Secret Manager according to predefined schedules specified in the `AWSSecretGuardian` custom resources.
+
+2. **AWS Integration:** It interacts with AWS services such as STS (Security Token Service) to authenticate and obtain user ARNs and Secrets Manager to manage secrets.
+
+3. **Kubernetes Integration:** The controller ensures synchronization between secrets stored in AWS and their Kubernetes counterparts. It creates or updates Kubernetes secrets based on the rotated values from AWS Secret Manager.
+
+4. **Customizable Rotation Parameters:** Users can define rotation parameters such as secret name, region, rotation interval (TTL), and keys (attributes) within the `AWSSecretGuardian` custom resources.
+
+5. **Error Handling:** The controller includes error handling mechanisms to manage various scenarios, such as failed authentication, secret creation/update errors, and AWS service errors.
+
+6. **Logging and Monitoring:** It provides detailed logging using the Kubernetes logging framework to facilitate monitoring and troubleshooting.
+
+By leveraging the AWSSecretGuardian controller, Kubernetes users can streamline the management of secrets stored in AWS, ensuring robust security practices and regulatory compliance.
 
 ## Getting Started
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
